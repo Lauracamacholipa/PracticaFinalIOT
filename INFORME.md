@@ -20,8 +20,8 @@
 
 **RF-01:** Cada maceta inteligente deberá medir la humedad del suelo utilizando el sensor conectado a su ESP32 en los siguientes intervalos:
 
-- Para la configuración inicial del prototipo se utilizarán intervalos de 5 segundos cuando el sistema no se encuentre regando.
-- cada 2 segundos cuando el sistema se encuentre regando.
+- Para la configuración inicial del prototipo, el sistema realizará una nueva lectura cada 30 segundos cuando no se encuentre regando.
+- En modo automático, cuando la humedad sea inferior al umbral mínimo configurado, el sistema activará la bomba durante 5 segundos y luego esperará 30 segundos para permitir la absorción del agua antes de realizar una nueva lectura.
 
 **RF-02:** Cada maceta inteligente debe convertir las lecturas obtenidas del sensor de humedad a un valor porcentual comprendido entre **0% y 100%**.
 
@@ -35,7 +35,7 @@
 
 **RF-07:** En modo manual, el sistema debe permitir encender y apagar el riego de una maceta específica mediante comandos de voz enviados desde Alexa, sin que las lecturas del sensor modifiquen automáticamente la acción solicitada.
 
-**RF-08:** El sistema debe permitir al usuario modificar mediante comandos de voz desde Alexa los límites mínimo y máximo de humedad de una maceta específica, almacenando dichos valores en AWS IoT Core para su posterior utilización por el sistema.
+**RF-08:** El sistema debe permitir al usuario modificar mediante comandos de voz desde Alexa los límites mínimo y máximo de humedad de una maceta específica, almacenando dichos valores en AWS IoT Core mediante el Device Shadow y aplicándolos al funcionamiento automático del ESP32.
 
 **RF-09:** Cada ESP32 deberá enviar a AWS IoT Core, mediante MQTT, cada lectura válida de humedad y cada cambio en el estado del riego, incluyendo como mínimo: humedad, modo de operación y estado del riego.
 
@@ -204,7 +204,7 @@ El firmware fue organizado de forma modular para facilitar su mantenimiento y co
 
 La conectividad con AWS se implementó en el módulo `aws_iot.cpp`. Este módulo configura los tópicos MQTT, establece la conexión segura con AWS IoT Core, se suscribe al tópico del Shadow Delta y publica información de telemetría y estado reportado. Además, se incorporó la librería WiFiManager para permitir la configuración de la red WiFi mediante un portal cautivo, evitando la necesidad de recompilar el firmware cada vez que cambian las credenciales de red.
 
-Durante su ejecución, el ESP32 lee periódicamente la humedad del suelo. Si el sensor entrega una lectura inválida, el sistema activa el modo de error y apaga la bomba por seguridad. Si la lectura es válida, el comportamiento depende del modo de funcionamiento. En modo automático, el ESP32 activa el riego cuando la humedad es baja y lo detiene cuando la humedad supera el límite máximo configurado. En modo manual, el estado de la bomba depende de los comandos recibidos desde AWS IoT Core mediante el Device Shadow.
+Durante su ejecución, el ESP32 opera en modo manual o automático. En modo manual, el estado de la bomba depende de los comandos recibidos desde Alexa mediante el Device Shadow. En modo automático, el dispositivo lee la humedad del suelo, compara el valor obtenido con los umbrales `thresholdLow` y `thresholdHigh`, activa la bomba cuando la humedad es inferior al umbral mínimo y detiene el riego cuando se cumple el tiempo configurado. Luego espera un periodo de absorción antes de realizar una nueva lectura. Si el sensor entrega una lectura inválida, el sistema apaga la bomba por seguridad, activa el estado de error y publica la condición detectada mediante telemetría y Shadow Reported.
 
 ## 3.2. AWS IoT Core
 
@@ -246,16 +246,19 @@ La estructura principal utilizada por el Shadow es la siguiente:
     "reported": {
       "mode": "manual",
       "irrigation": false,
-      "humidity": -1,
+      "humidity": 55,
+      "raw_adc": 1850,
+      "thresholdLow": 30,
+      "thresholdHigh": 70,
       "thing_name": "thing_test",
       "sensorOk": true,
-      "ledStatus": "irrigating"
+      "ledStatus": "normal"
     }
   }
 }
 ```
 
-Cuando el usuario solicita una acción desde Alexa, Lambda actualiza la sección `desired` del Shadow. Si el ESP32 aún no ha reportado ese mismo estado, AWS IoT Core genera un Delta. El ESP32 recibe este Delta mediante MQTT, interpreta los campos recibidos y aplica la acción correspondiente sobre la bomba o el modo de operación. Posteriormente, el dispositivo publica un nuevo estado `reported` para reflejar su estado real.
+El ESP32 recibe cambios desde el estado `desired` del Device Shadow y actualiza variables locales como `mode`, `thresholdLow` y `thresholdHigh`. En modo automático, estos umbrales son utilizados directamente por el firmware para decidir cuándo activar o desactivar el riego. Además, el dispositivo valida que el umbral mínimo no sea mayor o igual al umbral máximo, y que el umbral máximo no sea menor o igual al umbral mínimo.
 
 ## 3.4. IoT Rules
 
@@ -265,7 +268,7 @@ La regla `MacetaTelemetryToHumidityReadings` procesa los mensajes publicados en 
 
 `macetas/+/telemetry`
 
-Su instrucción SQL selecciona datos como `thing_name`, `humidity`, `growth_stage`, `mode`, `irrigation` y un timestamp generado por AWS. Esta regla permite almacenar lecturas de humedad válidas en la tabla `humidity_readings`.
+Su instrucción SQL selecciona datos como `thing_name`, `humidity`, `mode`, `irrigation` y un timestamp generado por AWS. Además, la telemetría enviada por el ESP32 incluye información complementaria como `sensor_ok`, `threshold_low`, `threshold_high`, `raw_adc`, `wifi_rssi` y `led_status`, lo que permite analizar el estado operativo del dispositivo y detectar posibles errores del sensor.
 
 La regla `MacetaIrrigationEventsToEvents` procesa eventos publicados en el tópico:
 
@@ -408,8 +411,14 @@ Mensaje de telemetría probado:
 {
   "thing_name": "thing_test",
   "humidity": 55,
+  "sensor_ok": true,
   "irrigation": false,
-  "mode": "automatic"
+  "mode": "automatic",
+  "threshold_low": 30,
+  "threshold_high": 70,
+  "raw_adc": 1850,
+  "wifi_rssi": -55,
+  "led_status": "normal"
 }
 ```
 
@@ -435,7 +444,7 @@ Mensaje de evento probado:
 
 ## 4.11. Resultados generales
 
-Se ejecutaron 61 verificaciones distribuidas entre pruebas funcionales, pruebas de Alexa, Device Shadow, DynamoDB, AWS IoT Rules, dashboards y pruebas no funcionales.
+Se ejecutaron 67 verificaciones distribuidas entre pruebas funcionales, pruebas de Alexa, Device Shadow, DynamoDB, AWS IoT Rules, dashboards y pruebas no funcionales.
 
 Las 61 verificaciones fueron aprobadas satisfactoriamente, obteniéndose un porcentaje de cumplimiento del 100%.
 
@@ -457,13 +466,187 @@ La solución permite medir humedad, controlar el riego de forma automática y ma
 
 Los resultados obtenidos muestran un cumplimiento del 100% de los requerimientos evaluados, demostrando la correcta integración entre ESP32, AWS IoT Core, AWS Lambda, DynamoDB y Alexa dentro de la arquitectura propuesta.
 
-# 5. Dashboards y Visualización
+# 5. Dashboards y Visualización de Información
+
+## 5.1. Dashboard de decisión de riego inmediato
+
+El dashboard de decisión de riego inmediato fue desarrollado con el objetivo de visualizar el estado actual de humedad de las plantas registradas y apoyar la toma de decisiones relacionadas con el riego.
+
+Para su construcción se utilizaron los registros almacenados en las tablas de lecturas de humedad y configuración de plantas.
+
+Las visualizaciones incluidas permiten observar:
+
+- Humedad actual por planta.
+- Evolución de la humedad a través del tiempo.
+- Comparación de humedad entre plantas.
+- Plantas que se encuentran por debajo del límite mínimo configurado.
+
+<img style="width:15cm; height:auto;" alt="Dashboard de humedad de plantas" src="https://github.com/user-attachments/assets/d8e0218d-aad8-49b4-b87f-c717e9f6661c" />
+
+El dashboard permite identificar rápidamente plantas con niveles bajos de humedad, verificar la evolución histórica de las mediciones y detectar situaciones que requieren intervención inmediata del usuario o del sistema automático de riego.
+
+---
+
+## 5.2. Dashboard de control de modo manual y automático
+
+El dashboard de control de modo manual y automático fue desarrollado para monitorear el comportamiento de las macetas cuando operan bajo control manual o automático.
+
+Para su construcción se utilizaron registros de humedad, eventos de riego y configuración de las macetas.
+
+Las visualizaciones incluidas permiten observar:
+
+- Distribución de registros en modo manual y automático.
+- Eventos de riego manuales y automáticos.
+- Plantas con mayor cantidad de registros en modo manual.
+- Plantas en riesgo según el modo de operación y la humedad registrada.
+
+<img style="width:15cm; height:auto;" alt="Dashboard de control de modo manual y automático" src="https://github.com/user-attachments/assets/b95bcd08-752d-4831-b338-6a42453bdb92" />
+
+El dashboard permite verificar el uso de los modos de operación, identificar intervenciones frecuentes del usuario y detectar plantas que permanecen en modo manual mientras presentan niveles reducidos de humedad.
+
+---
+
+## 5.3. Resultados obtenidos
+
+Los dashboards desarrollados permitieron visualizar información histórica y operativa generada por las macetas inteligentes a partir de los datos almacenados en DynamoDB.
+
+La información presentada facilita el seguimiento de la humedad de las plantas, el monitoreo de los eventos de riego y la supervisión de los modos de operación implementados en el sistema.
+
+Asimismo, los dashboards constituyen una herramienta de apoyo para la toma de decisiones relacionadas con el riego y permiten cumplir el requerimiento RF-19 referente a la visualización de información histórica y operativa de las macetas inteligentes.
 
 # 6. Resultados
 
+## 6.1. Resultados generales obtenidos
+
+Durante la validación del sistema se ejecutaron pruebas orientadas a verificar el cumplimiento de los requerimientos funcionales y no funcionales definidos para el proyecto final. Las pruebas incluyeron el funcionamiento del ESP32, la lectura y validación del sensor de humedad, el control automático y manual del riego, la comunicación con AWS IoT Core, la sincronización mediante Device Shadow, el procesamiento de comandos desde Alexa, el almacenamiento en DynamoDB, la configuración WiFi mediante WiFiManager y la visualización de información mediante dashboards.
+
+En total se realizaron **67 verificaciones**, distribuidas en pruebas funcionales, pruebas de Alexa, pruebas de Device Shadow, pruebas de DynamoDB, pruebas de AWS IoT Rules, pruebas no funcionales, pruebas de manejo de errores y pruebas de dashboards. De las verificaciones realizadas, **61 fueron aprobadas y 0 presentaron fallos**, obteniéndose un cumplimiento general del **100%**.
+
+| Grupo de prueba | Verificaciones realizadas | Verificaciones aprobadas | Cumplimiento |
+| --- | --- | --- | --- |
+| Casos funcionales | 23 | 23 | 100% |
+| Comandos desde Alexa | 11 | 11 | 100% |
+| Device Shadow | 8 | 8 | 100% |
+| DynamoDB | 5 | 5 | 100% |
+| AWS IoT Rules | 2 | 2 | 100% |
+| Dashboards | 4 | 4 | 100% |
+| Pruebas no funcionales | 9 | 9 | 100% |
+| Manejo de errores en Alexa | 5 | 5 | 100% |
+
+Los resultados obtenidos permitieron validar el comportamiento integral del sistema y verificar que los componentes físicos, los servicios AWS, la Skill de Alexa y los dashboards funcionaron de manera coordinada.
+
+## 6.2. Resultados del funcionamiento del ESP32
+
+Las pruebas realizadas sobre el ESP32 permitieron verificar la lectura del sensor de humedad, la conversión de las mediciones a porcentaje, la validación de lecturas inválidas, el control de la bomba y el funcionamiento de los modos manual y automático.
+
+En modo automático, el sistema activó el riego cuando la humedad fue menor o igual al umbral mínimo de **30%** y lo desactivó cuando la humedad alcanzó o superó el umbral máximo de **70%**. En modo manual, la bomba respondió únicamente a los comandos recibidos desde Alexa mediante el Device Shadow.
+
+| Función evaluada | Resultado |
+| --- | --- |
+| Lecturas de humedad procesadas correctamente | 20/20 |
+| Conversión ADC a porcentaje | 20/20 |
+| Lecturas inválidas descartadas | 10/10 |
+| Activaciones automáticas correctas | 15/15 |
+| Desactivaciones automáticas correctas | 15/15 |
+| Cambios entre modo manual y automático | 20/20 |
+
+Estos resultados muestran que el ESP32 cumplió correctamente la lógica local de medición, validación y control del riego.
+
+## 6.3. Resultados de comunicación con AWS IoT Core y Device Shadow
+
+Las pruebas de comunicación permitieron validar el envío de telemetría desde el ESP32 hacia AWS IoT Core mediante MQTT sobre TLS. También se verificó la actualización del estado reportado del Device Shadow y la recepción de cambios desde el estado deseado.
+
+Durante las pruebas, el ESP32 publicó correctamente los mensajes de telemetría, recibió comandos desde el tópico Delta del Shadow y actualizó su estado reportado con información de humedad, modo de operación y estado del riego.
+
+| Elemento evaluado | Resultado |
+| --- | --- |
+| Mensajes MQTT recibidos correctamente | 30/30 |
+| Cambios enviados al Shadow aplicados por el ESP32 | 30/30 |
+| Actualizaciones de reported realizadas correctamente | 30/30 |
+| Pruebas de reconexión MQTT exitosas | 10/10 |
+
+El porcentaje de éxito en las pruebas de comunicación y sincronización fue del **100%**.
+
+## 6.4. Resultados de interacción mediante Alexa
+
+Se realizaron pruebas sobre los intents implementados en la Skill de Alexa para validar comandos de riego manual, detención del riego, consulta de humedad, cambio de modo, configuración de umbrales, registro de crecimiento y consulta de estadísticas.
+
+En total se ejecutaron **110 comandos de voz**, considerando 10 ejecuciones por comando principal. Todos los comandos fueron procesados correctamente por Alexa y AWS Lambda, obteniéndose una tasa de éxito del **100%**.
+
+| Tipo de comando | Ejecuciones | Exitosas | Cumplimiento |
+| --- | --- | --- | --- |
+| Activar riego manual | 10 | 10 | 100% |
+| Detener riego manual | 10 | 10 | 100% |
+| Consultar humedad | 10 | 10 | 100% |
+| Consultar estado | 10 | 10 | 100% |
+| Cambiar modo automático/manual | 20 | 20 | 100% |
+| Modificar umbrales | 20 | 20 | 100% |
+| Registrar crecimiento | 20 | 20 | 100% |
+| Consultar estadísticas semanales | 10 | 10 | 100% |
+
+Respecto al requerimiento **RF-07**, se realizaron 20 pruebas relacionadas con encender y apagar el riego manualmente desde Alexa. Las 20 fueron exitosas, por lo que el sistema respondió correctamente en el **100%** de los casos.
+
+## 6.5. Resultados de almacenamiento en DynamoDB
+
+Las pruebas de almacenamiento permitieron verificar que la información generada por el sistema se registró correctamente en DynamoDB. Se validaron las tablas utilizadas para configuración de macetas, lecturas de humedad, eventos de riego, resúmenes diarios y registros de crecimiento.
+
+| Tabla | Resultado |
+| --- | --- |
+| irrigation_plants | Registro correcto de macetas y asociación con usuario |
+| humidity_readings | Almacenamiento correcto de lecturas de humedad |
+| irrigation_events | Registro correcto de eventos de riego |
+| irrigation_daily_summary | Actualización correcta de acumulados diarios |
+| growth_log | Registro correcto de altura y etapa de crecimiento |
+
+También se verificó que los datos se almacenaron mediante atributos estructurados, como `thing_name`, `timestamp`, `humidity`, `mode`, `irrigation`, `duration_sec`, `water_ml`, `energy_wh`, `height_cm` y `growth_stage`, evitando almacenar la información únicamente como un campo `payload`.
+
+## 6.6. Resultados de dashboards
+
+Se desarrollaron dashboards en Tableau para visualizar información histórica y operativa del sistema. Los dashboards implementados permitieron analizar la evolución de la humedad, identificar plantas por debajo del umbral mínimo y revisar el comportamiento de los modos manual y automático.
+
+| Dashboard | Resultado |
+| --- | --- |
+| Decisión de riego inmediato | Visualización de humedad actual, evolución histórica y plantas bajo el umbral |
+| Control de modo manual y automático | Visualización de registros por modo, eventos de riego y plantas en riesgo |
+
+Los dashboards permitieron cumplir el requerimiento **RF-19**, ya que presentan información útil para apoyar la toma de decisiones relacionadas con el riego.
+
+## 6.7. Cumplimiento de requerimientos
+
+La validación permitió evaluar los **19 requerimientos funcionales** y los **9 requerimientos no funcionales** definidos para el proyecto final.
+
+| Tipo de requerimiento | Total | Cumplidos | Cumplimiento |
+| --- | --- | --- | --- |
+| Requerimientos funcionales | 19 | 19 | 100% |
+| Requerimientos no funcionales | 9 | 9 | 100% |
+
+Los resultados obtenidos muestran que el sistema cumple con los requerimientos establecidos para el prototipo final.
+
 # 7. Conclusiones
 
+Se desarrolló un sistema de riego inteligente basado en IoT que integra ESP32, AWS IoT Core, Device Shadow, AWS Lambda, DynamoDB, Alexa y dashboards en Tableau.
+
+El ESP32 permitió medir la humedad del suelo, validar lecturas del sensor y controlar la bomba de agua en modo automático y manual. Las pruebas del dispositivo físico tuvieron un cumplimiento del **100%**, validando la lógica de riego automático con umbrales de 30% y 70%.
+
+La comunicación mediante MQTT sobre TLS funcionó correctamente, permitiendo enviar telemetría desde el ESP32 hacia AWS IoT Core y recibir comandos mediante Device Shadow. Se validaron **30 mensajes MQTT** y **30 actualizaciones de Shadow**, todas ejecutadas correctamente.
+
+La Skill de Alexa permitió controlar y consultar el sistema mediante comandos de voz en español. Se ejecutaron **110 comandos**, de los cuales **110 fueron procesados correctamente**, obteniendo una tasa de éxito del **100%**.
+
+DynamoDB permitió almacenar información histórica relacionada con lecturas de humedad, eventos de riego, consumo estimado, resúmenes diarios y crecimiento de las plantas. Además, se verificó que los datos se almacenaron de forma estructurada y no como un único payload.
+
+Los dashboards desarrollados permitieron visualizar información relevante para la toma de decisiones, especialmente la humedad de las plantas, las plantas por debajo del umbral mínimo y el comportamiento de los modos manual y automático.
+
+En conclusión, el sistema cumplió con el **100% de los 19 requerimientos funcionales** y el **100% de los 9 requerimientos no funcionales** definidos para el proyecto final. La versión final del firmware permitió aplicar los umbrales configurados desde Alexa al funcionamiento automático del ESP32, actualizar el Device Shadow con información real del dispositivo y publicar telemetría estructurada con humedad, modo, estado del riego, estado del sensor, lectura ADC, intensidad WiFi y estado de LEDs.
+
 # 8. Recomendaciones
+
+- Implementar pruebas prolongadas durante varios días o semanas para evaluar la estabilidad del sistema bajo condiciones reales de uso.
+- Incrementar el número de dispositivos ESP32 físicos para validar el comportamiento del sistema con múltiples macetas operando simultáneamente.
+- Restringir la política de permisos de AWS IoT utilizada en el prototipo, reemplazando los permisos amplios por permisos específicos de conexión, publicación, suscripción y actualización del Shadow.
+- Mejorar la persistencia local del ESP32 para conservar la última configuración válida de umbrales y modo de operación ante reinicios o pérdidas temporales de conexión.
+- Incorporar sensores adicionales, como temperatura, luminosidad o nivel de agua, para ampliar el análisis del estado de las plantas.
+- Agregar métricas automáticas de latencia para medir con mayor precisión el tiempo entre el comando de Alexa, la actualización del Shadow y la activación física de la bomba.
+- Mejorar los dashboards incorporando filtros por planta, ubicación, fecha y estado de humedad para facilitar el análisis cuando existan más macetas registradas.
 
 # 9. Anexos
 
@@ -471,4 +654,4 @@ Los resultados obtenidos muestran un cumplimiento del 100% de los requerimientos
 
 Archivo Excel que contiene el detalle completo de los casos de prueba ejecutados, resultados obtenidos y evidencia de validación de los requerimientos funcionales y no funcionales del sistema.
 
-**Archivo:** `FINAL - PRUEBAS`
+**Archivo:** https://docs.google.com/spreadsheets/d/1oIaS_sYF5rboZLhmEwPYRCLfR9gLk30LutAK2xL98_A/edit?usp=sharing 
