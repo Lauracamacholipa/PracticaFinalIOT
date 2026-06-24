@@ -10,7 +10,7 @@
 
 - Laura Camacho Lipa
 - Sergio Francisco Solis Luizaga
-- Cristhian Butron
+- Cristhian Butron Perez
 
 ---
 
@@ -504,9 +504,22 @@ Las visualizaciones incluidas permiten observar:
 
 El dashboard permite verificar el uso de los modos de operación, identificar intervenciones frecuentes del usuario y detectar plantas que permanecen en modo manual mientras presentan niveles reducidos de humedad.
 
----
+## 5.3. Dashboard de riego, consumo de agua y tiempo óptimo
 
-## 5.3. Resultados obtenidos
+El dashboard de riego, consumo de agua y tiempo óptimo fue desarrollado para analizar el comportamiento histórico del sistema de riego en las diferentes macetas registradas. Para su construcción se utilizaron los datos provenientes de los resúmenes diarios de riego, registros de humedad y eventos almacenados por el sistema.
+
+Las visualizaciones incluidas permiten observar:
+
+- Número de veces que se regó cada planta.
+- Total de agua consumida por planta.
+- Porcentaje de tiempo en condiciones óptimas de humedad.
+- Comparación del comportamiento entre las distintas macetas registradas.
+    
+<img width="1152" height="932" alt="image" src="https://github.com/user-attachments/assets/06a7ac35-940f-40b6-8706-b6bbf78edad7" />
+
+En conjunto, el dashboard permite analizar la eficiencia del riego, comparar el consumo de agua entre plantas y detectar posibles ajustes en los umbrales de humedad o en la frecuencia de riego. De esta manera, sirve como apoyo para la toma de decisiones relacionadas con el cuidado de las macetas y el uso eficiente del recurso hídrico.
+
+## 5.4. Resultados obtenidos
 
 Los dashboards desarrollados permitieron visualizar información histórica y operativa generada por las macetas inteligentes a partir de los datos almacenados en DynamoDB.
 
