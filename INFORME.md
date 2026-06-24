@@ -519,7 +519,12 @@ Las visualizaciones incluidas permiten observar:
 
 En conjunto, el dashboard permite analizar la eficiencia del riego, comparar el consumo de agua entre plantas y detectar posibles ajustes en los umbrales de humedad o en la frecuencia de riego. De esta manera, sirve como apoyo para la toma de decisiones relacionadas con el cuidado de las macetas y el uso eficiente del recurso hídrico.
 
-## 5.4. Resultados obtenidos
+## 5.4. Dashboard de eficiencia de agua y energía
+
+<img width="993" height="792" alt="image" src="https://github.com/user-attachments/assets/660c5274-0098-4a7f-8207-fa727b49897a" />
+
+
+## 5.5. Resultados obtenidos
 
 Los dashboards desarrollados permitieron visualizar información histórica y operativa generada por las macetas inteligentes a partir de los datos almacenados en DynamoDB.
 
