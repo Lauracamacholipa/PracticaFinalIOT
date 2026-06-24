@@ -17,8 +17,19 @@ String shadowDeltaTopic;
 String telemetryTopic;
 String currentMode = "automatic";
 
+int thresholdLow = 30;
+int thresholdHigh = 70;
+
 String getCurrentMode() {
     return currentMode;
+}
+
+int getThresholdLow() {
+    return thresholdLow;
+}
+
+int getThresholdHigh() {
+    return thresholdHigh;
 }
 
 void buildTopics() {
@@ -33,13 +44,13 @@ void buildTopics() {
 
 void callback(char* topic, byte* payload, unsigned int length)
 {
-
     Serial.println("===== CALLBACK MQTT =====");
 
     String msg;
 
-    for(int i = 0; i < length; i++)
+    for(int i = 0; i < length; i++){
         msg += (char)payload[i];
+    }
 
     Serial.print("TOPIC RECIBIDO: ");
     Serial.println(topic);
@@ -61,6 +72,7 @@ void callback(char* topic, byte* payload, unsigned int length)
 
         JsonObject state = doc["state"].as<JsonObject>();
 
+        // 1. Primero actualizar modo
         if(state.containsKey("mode")){
             currentMode = state["mode"].as<String>();
 
@@ -68,16 +80,54 @@ void callback(char* topic, byte* payload, unsigned int length)
             Serial.println(currentMode);
         }
 
-        if(state.containsKey("irrigation")){
-            bool cmd = state["irrigation"].as<bool>();
+        // 2. Luego actualizar umbrales
+        if(state.containsKey("thresholdLow")){
+            int newLow = state["thresholdLow"].as<int>();
 
-            if(cmd){
-                turnPumpOn();
-                Serial.println("BOMBA ENCENDIDA POR SHADOW");
+            if(newLow < thresholdHigh){
+                thresholdLow = newLow;
+
+                Serial.print("Threshold Low actualizado: ");
+                Serial.println(thresholdLow);
             }
             else{
-                turnPumpOff();
-                Serial.println("BOMBA APAGADA POR SHADOW");
+                Serial.println("Threshold Low rechazado: no puede ser mayor o igual al Threshold High");
+            }
+        }
+
+        if(state.containsKey("thresholdHigh")){
+            int newHigh = state["thresholdHigh"].as<int>();
+
+            if(newHigh > thresholdLow){
+                thresholdHigh = newHigh;
+
+                Serial.print("Threshold High actualizado: ");
+                Serial.println(thresholdHigh);
+            }
+            else{
+                Serial.println("Threshold High rechazado: no puede ser menor o igual al Threshold Low");
+            }
+        }
+
+        // 3. irrigation SOLO se aplica en modo manual
+        if(state.containsKey("irrigation") && !state["irrigation"].isNull()){
+
+            bool cmd = state["irrigation"].as<bool>();
+
+            if(currentMode == "manual"){
+
+                if(cmd){
+                    turnPumpOn();
+                    Serial.println("BOMBA ENCENDIDA POR SHADOW EN MODO MANUAL");
+                }
+                else{
+                    turnPumpOff();
+                    Serial.println("BOMBA APAGADA POR SHADOW EN MODO MANUAL");
+                }
+
+            }
+            else{
+                Serial.println("Comando irrigation ignorado porque el sistema está en modo automático");
             }
         }
     }
@@ -155,44 +205,70 @@ void loopAWS() {
     client.loop();
 }
 
-void publishTelemetry(int humidity, bool irrigation)
-{
-    if(!client.connected())
+void publishTelemetry(int humidity, bool irrigation) {
+    if (!client.connected()) {
         return;
+    }
 
-    StaticJsonDocument<256> telemetryDoc;
+    bool sensorOk = isSensorOk();
 
-    telemetryDoc["thing_name"] = THING_NAME;
-    telemetryDoc["humidity"] = humidity;
-    telemetryDoc["irrigation"] = irrigation;
+    String ledStatus = "normal";
 
-    char telemetryBuffer[256];
-    serializeJson(telemetryDoc, telemetryBuffer);
+    if (!sensorOk) {
+        ledStatus = "error";
+    }
+    else if (irrigation) {
+        ledStatus = "irrigating";
+    }
+    else if (humidity < thresholdLow) {
+        ledStatus = "dry";
+    }
+    else if (humidity > thresholdHigh) {
+        ledStatus = "wet";
+    }
+    else {
+        ledStatus = "normal";
+    }
 
-    client.publish(
-        telemetryTopic.c_str(),
-        telemetryBuffer
-    );
+    StaticJsonDocument<512> doc;
 
-    StaticJsonDocument<256> shadowDoc;
+    doc["thing_name"] = THING_NAME;
+    doc["humidity"] = humidity;
+    doc["sensor_ok"] = sensorOk;
+    doc["mode"] = currentMode;
+    doc["irrigation"] = irrigation;
+    doc["threshold_low"] = thresholdLow;
+    doc["threshold_high"] = thresholdHigh;
+    doc["raw_adc"] = getLastRawAdc();
+    doc["wifi_rssi"] = WiFi.RSSI();
+    doc["led_status"] = ledStatus;
 
+    char buffer[512];
+    serializeJson(doc, buffer);
+
+    client.publish(telemetryTopic.c_str(), buffer);
+
+    Serial.println("Telemetry:");
+    Serial.println(buffer);
+
+    StaticJsonDocument<512> shadowDoc;
     JsonObject state = shadowDoc.createNestedObject("state");
     JsonObject reported = state.createNestedObject("reported");
 
-    reported["humidity"] = humidity;
-    reported["irrigation"] = irrigation;
     reported["mode"] = currentMode;
+    reported["irrigation"] = irrigation;
+    reported["humidity"] = humidity;
+    reported["sensor_ok"] = sensorOk;
+    reported["raw_adc"] = getLastRawAdc();
+    reported["thresholdLow"] = thresholdLow;
+    reported["thresholdHigh"] = thresholdHigh;
+    reported["thing_name"] = THING_NAME;
+    reported["led_status"] = ledStatus;
 
-    char shadowBuffer[256];
+    char shadowBuffer[512];
     serializeJson(shadowDoc, shadowBuffer);
 
-    client.publish(
-        shadowUpdateTopic.c_str(),
-        shadowBuffer
-    );
-
-    Serial.println("Telemetry:");
-    Serial.println(telemetryBuffer);
+    client.publish(shadowUpdateTopic.c_str(), shadowBuffer);
 
     Serial.println("Shadow update:");
     Serial.println(shadowBuffer);

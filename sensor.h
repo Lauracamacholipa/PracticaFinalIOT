@@ -4,5 +4,6 @@
 void initSensor();
 int readHumidity();
 bool isSensorOk();
+int getLastRawAdc();
 
 #endif

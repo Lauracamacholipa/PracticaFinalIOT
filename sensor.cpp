@@ -2,6 +2,7 @@
 #include "config.h"
 
 bool sensorOk = false;
+int lastRawAdc = -1;
 
 void initSensor() {
     pinMode(SENSOR_HUMEDAD, INPUT);
@@ -12,16 +13,20 @@ bool isSensorOk() {
     return sensorOk;
 }
 
+int getLastRawAdc() {
+    return lastRawAdc;
+}
+
 int readHumidity() {
     long sum = 0;
 
-    // promedio de 10 lecturas
-    for(int i=0;i<10;i++){
+    for(int i = 0; i < 10; i++){
         sum += analogRead(SENSOR_HUMEDAD);
-        delay(1000);
+        delay(20);
     }
 
     int raw = sum / 10;
+    lastRawAdc = raw;
 
     Serial.print("RAW: ");
     Serial.println(raw);
@@ -39,7 +44,7 @@ int readHumidity() {
                       0,
                       100);
 
-    humedad = constrain(humedad,0,100);
+    humedad = constrain(humedad, 0, 100);
 
     return humedad;
 }

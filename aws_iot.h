@@ -5,10 +5,12 @@
 
 void initAWS();
 void loopAWS();
-void publishTelemetry(
-    int humidity,
-    bool irrigation
-);
+
+void publishTelemetry(int humidity, bool irrigation);
+
 String getCurrentMode();
+
+int getThresholdLow();
+int getThresholdHigh();
 
 #endif
