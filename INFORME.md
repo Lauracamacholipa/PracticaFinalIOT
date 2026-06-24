@@ -334,3 +334,141 @@ Ejemplos de comandos soportados por la Skill son:
 - “configura humedad mínima en 30 por ciento”
 
 De esta forma, Alexa funciona como interfaz de usuario del sistema IoT, permitiendo controlar la maceta inteligente sin necesidad de una aplicación móvil o interfaz física adicional.
+
+# 4. Pruebas y Validaciones
+
+## 4.1. Objetivo de las pruebas
+
+El objetivo de las pruebas fue validar que el sistema de riego inteligente cumpla con los requerimientos funcionales y no funcionales definidos para el proyecto final. Las pruebas verificaron el funcionamiento local del ESP32, la lectura y validación del sensor de humedad, el control automático y manual del riego, la comunicación mediante MQTT con AWS IoT Core, la sincronización mediante Device Shadow, el procesamiento de comandos desde Alexa, el almacenamiento de información en DynamoDB, la configuración de red mediante WiFiManager y la visualización de información histórica mediante dashboards.
+
+Cada caso de prueba fue ejecutado 10 veces de manera independiente. Para las pruebas relacionadas con Alexa se realizaron 10 ejecuciones por comando de voz. Para las pruebas de almacenamiento y sincronización se realizaron 10 operaciones consecutivas verificando la consistencia de los resultados obtenidos.
+
+## 4.2. Entorno de pruebas
+
+| Elemento | Descripción |
+| --- | --- |
+| Microcontrolador | ESP32 |
+| Sensor | Sensor capacitivo de humedad del suelo |
+| Actuadores | Bomba de agua, LED verde y LED rojo |
+| Plataforma IoT | AWS IoT Core |
+| Comunicación | MQTT sobre TLS |
+| Backend | AWS Lambda (Python) |
+| Base de datos | DynamoDB |
+| Interfaz de usuario | Alexa Skill |
+| Configuración WiFi | WiFiManager |
+| Región AWS | us-east-1 |
+| Zona horaria | America/La_Paz |
+| Dispositivo de prueba | thing_test |
+| Maceta de prueba | tomate#escritorio |
+
+## 4.3. Estrategia de validación
+
+Las pruebas se organizaron en los siguientes grupos:
+
+- Pruebas del ESP32 y sensor de humedad.
+- Pruebas de control automático y manual.
+- Pruebas de comunicación MQTT y AWS IoT Core.
+- Pruebas de sincronización mediante Device Shadow.
+- Pruebas de comandos de voz mediante Alexa.
+- Pruebas de almacenamiento en DynamoDB.
+- Pruebas de AWS IoT Rules.
+- Pruebas de dashboards y visualización.
+- Pruebas no funcionales.
+- Pruebas de manejo de errores.
+
+## 4.4. Casos de prueba funcionales
+
+<img style="width:12.5cm; height:auto;" alt="Casos de prueba funcionales" src="https://github.com/user-attachments/assets/704b5508-9345-4264-8992-bb7408f173a0" />
+
+## 4.5. Pruebas de comandos desde Alexa
+
+<img style="width:12.5cm; height:auto;" alt="Pruebas de comandos desde Alexa" src="https://github.com/user-attachments/assets/17d347da-f723-4064-91d3-31a9c8b00b8c" />
+
+Resultado obtenido: 110 ejecuciones correctas de 110 intentos realizados (100%).
+
+## 4.6. Pruebas del Device Shadow
+
+<img style="width:14cm; height:auto;" alt="Pruebas del Device Shadow" src="https://github.com/user-attachments/assets/dab439e2-6e19-4e82-a918-1ec0eae81c82" />
+
+Resultado obtenido: 80 sincronizaciones exitosas de 80 realizadas (100%).
+
+## 4.7. Pruebas de almacenamiento en DynamoDB
+
+<img style="width:12cm; height:auto;" alt="Pruebas de almacenamiento en DynamoDB" src="https://github.com/user-attachments/assets/e2470004-a74a-47dd-be88-cdfae6783af9" />
+
+Adicionalmente se verificó que los datos se almacenan mediante atributos estructurados y no mediante un único campo payload.
+
+## 4.8. Pruebas de AWS IoT Rules
+
+<img style="width:12cm; height:auto;" alt="Pruebas de AWS IoT Rules" src="https://github.com/user-attachments/assets/05acd2e7-cb2c-40fb-9454-6492c222551a" />
+
+Mensaje de telemetría probado:
+
+```json
+{
+  "thing_name": "thing_test",
+  "humidity": 55,
+  "irrigation": false,
+  "mode": "automatic"
+}
+```
+
+Mensaje de evento probado:
+
+```json
+{
+  "thing_name": "thing_test",
+  "duration_sec": 20,
+  "water_ml": 166.67,
+  "energy_wh": 0.0556,
+  "mode": "manual"
+}
+```
+
+## 4.9. Pruebas no funcionales
+
+<img style="width:10.5cm; height:auto;" alt="Pruebas no funcionales" src="https://github.com/user-attachments/assets/30484258-af3d-4d7b-b3ff-ba2eb6068737" />
+
+## 4.10. Pruebas de manejo de errores en Alexa
+
+<img style="width:12cm; height:auto;" alt="Pruebas de manejo de errores en Alexa" src="https://github.com/user-attachments/assets/e519b6e3-678d-41e0-98ea-2ce9a8b93178" />
+
+## 4.11. Resultados generales
+
+Se ejecutaron 61 verificaciones distribuidas entre pruebas funcionales, pruebas de Alexa, Device Shadow, DynamoDB, AWS IoT Rules, dashboards y pruebas no funcionales.
+
+Las 61 verificaciones fueron aprobadas satisfactoriamente, obteniéndose un porcentaje de cumplimiento del 100%.
+
+Las pruebas de sincronización mediante Device Shadow alcanzaron una tasa de éxito del 100%, aplicando correctamente los cambios enviados desde AWS IoT Core hacia el ESP32.
+
+Las pruebas de comandos de voz obtuvieron una tasa de éxito del 100%, procesando correctamente consultas, configuraciones y acciones de riego.
+
+El tiempo promedio de respuesta observado para comandos de Alexa fue de 3.4 segundos, mientras que el tiempo máximo registrado fue de 6.8 segundos, cumpliendo el requerimiento RNF-09.
+
+Las pruebas de almacenamiento verificaron el registro correcto del 100% de los datos generados en DynamoDB, incluyendo lecturas de humedad, eventos de riego, resúmenes diarios y registros de crecimiento.
+
+Las pruebas de WiFiManager permitieron configurar correctamente nuevas credenciales de red sin necesidad de recompilar el firmware, cumpliendo el requerimiento RF-18.
+
+## 4.12. Conclusión de las pruebas
+
+Con base en los casos ejecutados, se concluye que el sistema cumple satisfactoriamente los requerimientos funcionales y no funcionales definidos para el proyecto.
+
+La solución permite medir humedad, controlar el riego de forma automática y manual, comunicarse de manera segura con AWS IoT Core, sincronizar estados mediante Device Shadow, procesar comandos de voz desde Alexa, almacenar información histórica en DynamoDB, configurar credenciales mediante WiFiManager.
+
+Los resultados obtenidos muestran un cumplimiento del 100% de los requerimientos evaluados, demostrando la correcta integración entre ESP32, AWS IoT Core, AWS Lambda, DynamoDB y Alexa dentro de la arquitectura propuesta.
+
+# 5. Dashboards y Visualización
+
+# 6. Resultados
+
+# 7. Conclusiones
+
+# 8. Recomendaciones
+
+# 9. Anexos
+
+## Anexo A. Resultados detallados de pruebas
+
+Archivo Excel que contiene el detalle completo de los casos de prueba ejecutados, resultados obtenidos y evidencia de validación de los requerimientos funcionales y no funcionales del sistema.
+
+**Archivo:** `FINAL - PRUEBAS`
